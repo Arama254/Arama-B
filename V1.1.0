@@ -1,0 +1,184 @@
+// ============================================================================
+//  ARAMA — Laundry Management System
+//  File    : arama.c
+//  Version : 1.1.0 (Audited & Perfected)
+//  Built   : CS50 Week 1 — C Fundamentals
+// ============================================================================
+//
+//  LEARNING CHAT BREADCRUMBS
+//  ──────────────────────────────────────────────────────────────────────────
+//  [01] Initial loop + customer input design
+//       → <!-- TODO: paste learning chat link -->
+//
+//  [02] Itemized pricing: Shirts / Pants / Dresses
+//       → <!-- TODO: paste learning chat link -->
+//
+//  [03] Express surcharge logic + tier validation
+//       → <!-- TODO: paste learning chat link -->
+//
+//  [04] File I/O: fopen / fprintf / fflush / fclose
+//       → <!-- TODO: paste learning chat link -->
+//
+//  [05] NULL guard on get_string + invalid tier recovery
+//       → <!-- TODO: paste learning chat link -->
+//
+//  [06] Security audit v1 — fflush, NULL, tier fix
+//       → <!-- TODO: paste learning chat link -->
+//
+//  [07] Final clean source v1.0.0
+//       → <!-- TODO: paste learning chat link -->
+//
+//  [08] This audit — math check, persistence, clean code
+//       → <!-- TODO: paste learning chat link -->
+//  ──────────────────────────────────────────────────────────────────────────
+
+#include <cs50.h>   // get_string, get_int, get_char — validated terminal input
+#include <stdio.h>  // FILE, fopen, fprintf, fflush, fclose, printf
+
+// ── Pricing Constants ─────────────────────────────────────────────────────────
+// const float is correct here — these are read-only values, not loop bounds
+const float PRICE_SHIRT       = 2.00;
+const float PRICE_PANTS       = 3.00;
+const float PRICE_DRESS       = 5.00;
+const float EXPRESS_SURCHARGE = 5.00;
+
+// FIX #1 ✅ — Use #define for the loop bound, not const int.
+// In C, a const int is not a compile-time constant and can cause
+// -Wvla warnings in strict C11 environments. #define has no such issue.
+#define CUSTOMER_LIMIT 5
+
+int main(void)
+{
+    // ── Open log file in append mode ─────────────────────────────────────────
+    // "a" never overwrites history — new records always go to the end
+    FILE *log_file = fopen("laundry_log.txt", "a");
+
+    // NULL check — if fopen fails here, log_file was never opened,
+    // so no fclose is needed. Returning 1 immediately is correct and safe.
+    if (log_file == NULL)
+    {
+        printf("CRITICAL ERROR: Cannot open laundry_log.txt.\n");
+        printf("Check write permissions in this directory.\n");
+        return 1;
+    }
+
+    printf("\nARAMA — Laundry Manager v1.1 | Session started.\n\n");
+
+    for (int customer_number = 1; customer_number <= CUSTOMER_LIMIT; customer_number++)
+    {
+        printf("--- Customer %i of %i ---\n", customer_number, CUSTOMER_LIMIT);
+
+        // ── Customer name ─────────────────────────────────────────────────────
+        string customer_name = get_string("Customer name        : ");
+
+        // NULL guard — skip record rather than write "(null)" to the log
+        if (customer_name == NULL)
+        {
+            printf("WARNING: Name read failed. Skipping customer %i.\n",
+                   customer_number);
+            continue;
+        }
+
+        // ── Item counts ───────────────────────────────────────────────────────
+        // get_int rejects non-integer input automatically via the CS50 library
+        int shirt_count = get_int("Shirts  ($2.00 each) : ");
+        int pants_count = get_int("Pants   ($3.00 each) : ");
+        int dress_count = get_int("Dresses ($5.00 each) : ");
+
+        // FIX #2 ✅ — Negative item counts produce negative subtotals and corrupt
+        // the log with nonsense records. Reject any negative value immediately.
+        if (shirt_count < 0 || pants_count < 0 || dress_count < 0)
+        {
+            printf("ERROR: Item counts cannot be negative. Record skipped.\n");
+            continue;
+        }
+
+        // ── Service tier ──────────────────────────────────────────────────────
+        char service_tier = get_char("Tier — E (Express) / S (Standard): ");
+
+        // ── Subtotal calculation ──────────────────────────────────────────────
+        // MATH AUDIT: each item type × its unit price, then summed.
+        // Verified: shirt_count=3, pants_count=1, dress_count=2
+        //   → (3×2.00) + (1×3.00) + (2×5.00) = 6.00 + 3.00 + 10.00 = $19.00 ✅
+        float shirt_subtotal  = shirt_count * PRICE_SHIRT;
+        float pants_subtotal  = pants_count * PRICE_PANTS;
+        float dress_subtotal  = dress_count * PRICE_DRESS;
+        float order_subtotal  = shirt_subtotal + pants_subtotal + dress_subtotal;
+
+        // ── Surcharge logic ───────────────────────────────────────────────────
+        // MATH AUDIT: surcharge is flat per ORDER, not per item.
+        // Express: final = subtotal + 5.00 ✅
+        // Standard: final = subtotal + 0.00 ✅
+        // Invalid: record is skipped — no corrupt data written to log ✅
+        float surcharge_amount = 0.0;
+
+        if (service_tier == 'E' || service_tier == 'e')
+        {
+            surcharge_amount = EXPRESS_SURCHARGE;
+            service_tier     = 'E';
+        }
+        else if (service_tier == 'S' || service_tier == 's')
+        {
+            surcharge_amount = 0.0;
+            service_tier     = 'S';
+        }
+        else
+        {
+            printf("ERROR: '%c' is not a valid tier. Use E or S. Record skipped.\n",
+                   service_tier);
+            continue;
+        }
+
+        // Final total — the only number that gets billed and logged
+        float final_total = order_subtotal + surcharge_amount;
+
+        // ── Receipt preview ───────────────────────────────────────────────────
+        // Shown BEFORE writing to log — cashier can catch errors before
+        // the record becomes a permanent part of the business ledger
+        printf("\n  Receipt Preview:\n");
+        printf("  Shirts  : %i x $%.2f = $%.2f\n",
+               shirt_count, PRICE_SHIRT, shirt_subtotal);
+        printf("  Pants   : %i x $%.2f = $%.2f\n",
+               pants_count, PRICE_PANTS, pants_subtotal);
+        printf("  Dresses : %i x $%.2f = $%.2f\n",
+               dress_count, PRICE_DRESS, dress_subtotal);
+        printf("  Subtotal:             $%.2f\n", order_subtotal);
+        if (service_tier == 'E')
+        {
+            printf("  Express :            +$%.2f\n", surcharge_amount);
+        }
+        printf("  Total   :             $%.2f\n\n", final_total);
+
+        // ── Write to log ──────────────────────────────────────────────────────
+        fprintf(log_file, "Customer  : %-20s | Tier: %c\n",
+                customer_name, service_tier);
+        fprintf(log_file, "Items     : Shirts: %i | Pants: %i | Dresses: %i\n",
+                shirt_count, pants_count, dress_count);
+        fprintf(log_file, "Subtotal  : $%.2f | Surcharge: $%.2f | Total: $%.2f\n",
+                order_subtotal, surcharge_amount, final_total);
+        fprintf(log_file, "------------------------------------------------\n");
+
+        // fflush — commits this record to disk immediately.
+        // If the program crashes after this line, the record is already safe.
+        fflush(log_file);
+
+        printf("  Record saved for %s.\n\n", customer_name);
+
+    }  // end customer loop
+
+    // ── Close log file ────────────────────────────────────────────────────────
+    // Flushes any remaining OS buffer and releases the file handle cleanly.
+    // FIX #3 ✅ — Documented explicitly: fclose is only reached when fopen
+    // succeeded. The early return 1 above is the only other exit path,
+    // and at that point log_file is NULL so no fclose is required.
+    fclose(log_file);
+
+    printf("Session complete. All records saved to laundry_log.txt.\n\n");
+    return 0;
+}
+
+// ============================================================================
+//  END OF FILE — arama.c  |  v1.1.0 Audited
+//  Compile : gcc -o arama arama.c -lcs50
+//  Run     : ./arama
+// ============================================================================
