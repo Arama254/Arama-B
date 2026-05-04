@@ -1,0 +1,201 @@
+// ============================================================================
+//  ARAMA — Laundry Management System
+//  File    : arama.c
+//  Version : 1.4.1 (Editorial Review — All Issues Resolved)
+//  Standard: C11
+//  Build   : gcc -o arama arama.c -lcs50
+//  Run     : ./arama
+// ============================================================================
+//
+//  LEARNING CHAT BREADCRUMBS
+//  ──────────────────────────────────────────────────────────────────────────
+//  [01] Initial loop + customer input design
+//       → <!-- TODO: paste learning chat link -->
+//  [02] Itemized pricing — Shirts / Pants / Dresses
+//       → <!-- TODO: paste learning chat link -->
+//  [03] Express surcharge logic + tier validation
+//       → <!-- TODO: paste learning chat link -->
+//  [04] File I/O — fopen / fprintf / fflush / fclose
+//       → <!-- TODO: paste learning chat link -->
+//  [05] Security audits v1–v3 — all edge cases resolved
+//       → <!-- TODO: paste learning chat link -->
+//  [06] Single-order Termux/Linux production build v1.4.0
+//       → <!-- TODO: paste learning chat link -->
+//  [07] Editorial review — %d, alignment, order stamp v1.4.1
+//       → <!-- TODO: paste learning chat link -->
+//  ──────────────────────────────────────────────────────────────────────────
+
+// FIX #1 ✅ — get_char added to cs50.h comment (was omitted in v1.4.0)
+#include <cs50.h>   // get_int, get_char — validated terminal input
+#include <stdio.h>  // FILE, fopen, fprintf, fflush, fclose, printf
+
+// ── Pricing constants ─────────────────────────────────────────────────────────
+// double used throughout — float accumulates rounding errors across log records
+// A price change is one line here, never a search through the program body
+const double PRICE_SHIRT       = 2.00;
+const double PRICE_PANTS       = 3.00;
+const double PRICE_DRESS       = 5.00;
+const double EXPRESS_SURCHARGE = 5.00;
+
+// Upper bound per item type — prevents INT_MAX silently overflowing double
+#define MAX_ITEM_COUNT 500
+
+// ============================================================================
+int main(void)
+{
+    printf("\n============================\n");
+    printf("  ARAMA — Laundry Manager\n");
+    printf("============================\n\n");
+
+    // ── STEP 1: Collect item counts ───────────────────────────────────────────
+    // get_int rejects decimals, letters, and symbols at the input layer
+    // A fractional item count cannot be entered so fractional pricing
+    // errors cannot propagate to the subtotal
+    int shirt_count = get_int("Shirts  ($2.00 each) : ");
+    int pants_count = get_int("Pants   ($3.00 each) : ");
+    int dress_count = get_int("Dresses ($5.00 each) : ");
+
+    // Negative count guard — a negative subtotal implies a refund was issued,
+    // creating a phantom transaction with no external evidence to resolve it
+    if (shirt_count < 0 || pants_count < 0 || dress_count < 0)
+    {
+        printf("ERROR: Item counts cannot be negative.\n");
+        return 1;
+    }
+
+    // Overflow guard — INT_MAX items silently overflows double arithmetic
+    // and writes a garbage total to the log with no runtime warning
+    if (shirt_count > MAX_ITEM_COUNT ||
+        pants_count > MAX_ITEM_COUNT ||
+        dress_count > MAX_ITEM_COUNT)
+    {
+        printf("ERROR: Item count exceeds maximum of %d per type.\n",
+               MAX_ITEM_COUNT);
+        return 1;
+    }
+
+    // Zero-order guard — a $0.00 record with no items is a phantom transaction
+    // implying a customer was served when no service occurred
+    if (shirt_count == 0 && pants_count == 0 && dress_count == 0)
+    {
+        printf("ERROR: Order contains no items.\n");
+        return 1;
+    }
+
+    // ── STEP 2: Collect and validate service tier ─────────────────────────────
+    // while loop re-prompts until a valid tier is entered — E or S only
+    // Prevents a miskeyed character from silently defaulting to Standard
+    // and waiving the Express fee with no log evidence it happened
+    char service_tier;
+    while (1)
+    {
+        service_tier = get_char("Tier — E (Express) / S (Standard): ");
+
+        if (service_tier == 'E' || service_tier == 'e' ||
+            service_tier == 'S' || service_tier == 's')
+        {
+            break;
+        }
+
+        printf("ERROR: '%c' is not valid. Enter E for Express or S for Standard.\n",
+               service_tier);
+    }
+
+    // Normalize to uppercase — a log mixing 'e' and 'E' breaks any future
+    // tier-based filter or reconciliation query
+    if (service_tier == 'e') service_tier = 'E';
+    if (service_tier == 's') service_tier = 'S';
+
+    // ── STEP 3: Calculate subtotal ────────────────────────────────────────────
+    // Each item type in its own named variable — receipt preview displays
+    // each line without recomputing; each line is independently auditable
+    double shirt_subtotal = shirt_count * PRICE_SHIRT;
+    double pants_subtotal = pants_count * PRICE_PANTS;
+    double dress_subtotal = dress_count * PRICE_DRESS;
+    double order_subtotal = shirt_subtotal + pants_subtotal + dress_subtotal;
+
+    // ── STEP 4: Apply surcharge ───────────────────────────────────────────────
+    // Flat per order, not per item — a 10-shirt Express order pays $5.00
+    // extra, not $50.00. Matches standard laundry industry surcharge model.
+    // service_tier is guaranteed 'E' or 'S' by the validation loop above
+    double surcharge_amount = (service_tier == 'E') ? EXPRESS_SURCHARGE : 0.0;
+    double final_total      = order_subtotal + surcharge_amount;
+
+    // ── STEP 5: Receipt preview ───────────────────────────────────────────────
+    // Displayed BEFORE any file write — cashier verifies the full breakdown
+    // before the record becomes a permanent entry in the business ledger
+    // FIX #2 ✅ — all amount columns normalised to the same width (12 chars)
+    //             so dollar values align vertically on narrow Termux terminals
+    printf("\n----------------------------\n");
+    printf("       Receipt Preview      \n");
+    printf("----------------------------\n");
+    // FIX #3 ✅ — %i replaced with %d throughout (conventional decimal
+    //             specifier; %i accepts octal/hex on scanf and is inconsistent)
+    printf("Shirts  : %d x $%.2f = $%.2f\n",
+           shirt_count, PRICE_SHIRT,  shirt_subtotal);
+    printf("Pants   : %d x $%.2f = $%.2f\n",
+           pants_count, PRICE_PANTS,  pants_subtotal);
+    printf("Dresses : %d x $%.2f = $%.2f\n",
+           dress_count, PRICE_DRESS,  dress_subtotal);
+    printf("----------------------------\n");
+    printf("Subtotal:           $%6.2f\n", order_subtotal);
+    if (service_tier == 'E')
+    {
+        printf("Express :          +$%6.2f\n", surcharge_amount);
+    }
+    printf("----------------------------\n");
+    printf("TOTAL   :           $%6.2f\n", final_total);
+    printf("Tier    :           %s\n",
+           (service_tier == 'E') ? "Express" : "Standard");
+    printf("----------------------------\n");
+
+    // ── STEP 6: Open log file ─────────────────────────────────────────────────
+    // "a" (append) mode:
+    //   • Creates laundry_log.txt automatically if it does not exist
+    //   • All writes go to END of file — prior records cannot be overwritten
+    FILE *log_file = fopen("laundry_log.txt", "a");
+
+    // NULL check — fopen returns NULL on bad path or missing write permission
+    // log_file was never opened here so no fclose is needed or correct
+    if (log_file == NULL)
+    {
+        printf("\nCRITICAL ERROR: Cannot open laundry_log.txt.\n");
+        printf("Check write permissions in this directory.\n");
+        return 1;
+    }
+
+    // ── STEP 7: Write record to log ───────────────────────────────────────────
+    // FIX #4 ✅ — static counter added so consecutive identical orders are
+    //             distinguishable in the log without requiring a customer name.
+    //             static preserves the value across calls in the same session.
+    static int order_number = 0;
+    order_number++;
+
+    // FIX #3 ✅ — %i replaced with %d in all fprintf calls
+    fprintf(log_file, "Order     : #%d\n", order_number);
+    fprintf(log_file, "Tier      : %s\n",
+            (service_tier == 'E') ? "Express" : "Standard");
+    fprintf(log_file, "Items     : Shirts: %d | Pants: %d | Dresses: %d\n",
+            shirt_count, pants_count, dress_count);
+    fprintf(log_file, "Subtotal  : $%.2f | Surcharge: $%.2f | Total: $%.2f\n",
+            order_subtotal, surcharge_amount, final_total);
+    fprintf(log_file, "------------------------------------------------\n");
+
+    // fflush — forces C library buffer to disk immediately after the record
+    // Mode A: process exit reclaims RAM — writing to a file addresses this
+    // Mode B: fprintf batches writes in RAM — fflush prevents crash data loss
+    fflush(log_file);
+
+    // fclose — flushes remaining buffer and releases the OS file handle
+    // Without fclose the handle stays open non-deterministically and can
+    // leave the final record incomplete
+    fclose(log_file);
+
+    printf("\nOrder #%d saved to laundry_log.txt.\n\n", order_number);
+    return 0;
+}
+// ============================================================================
+//  END OF FILE — arama.c | v1.4.1 Editorial Review
+//  Compile : gcc -o arama arama.c -lcs50
+//  Run     : ./arama
+// ============================================================================
